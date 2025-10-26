@@ -1,41 +1,46 @@
-// استيراد المكتبات
+// 1. استيراد المكتبات (بما في ذلك express)
+const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const { createClient } = require('@supabase/supabase-js');
 
-// قراءة المتغيرات السرية (هنحطها في Vercel)
+// 2. قراءة المتغيرات السرية
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_KEY;
 
-// تهيئة عميل Supabase
+// 3. تهيئة البوت وقاعدة البيانات
+const bot = new TelegramBot(TOKEN);
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// تهيئة البوت (بنستخدمه بس عشان نبعت الرسايل)
-const bot = new TelegramBot(TOKEN);
+// 4. تهيئة تطبيق express
+const app = express();
 
-// دي الدالة الأساسية اللي Vercel هيشغلها
-module.exports = async (request, response) => {
+// 5. [✨ أهم خطوة: الحل ✨]
+// استخدام الـ middleware المخصص لقراءة الـ JSON
+app.use(express.json());
+
+// 6. تعريف مسار الـ Webhook (Vercel هيشغله تلقائياً)
+app.post('/', async (req, res) => {
   try {
-    // الـ request.body بيحتوي على الرسالة اللي جاية من تيليجرام
-    const { message } = request.body;
+    // 7. دلوقتي req.body هتكون مقروءة ومفهومة
+    const { message } = req.body;
 
-    // لو مفيش رسالة أو مفيش نص (زي صورة أو ستيكر)
+    // لو مفيش رسالة أو نص
     if (!message || !message.text) {
-      return response.status(200).send('OK');
+      return res.status(200).send('OK');
     }
 
-    // استخراج البيانات المهمة من الرسالة
+    // استخراج البيانات
     const { text } = message;
     const chatId = message.chat.id;
     const userId = message.from.id;
     const firstName = message.from.first_name;
     const username = message.from.username;
 
-    // ---- 1. حساب عدد الحروف ----
+    // --- 1. حساب عدد الحروف ---
     const charCount = text.length;
 
-    // ---- 2. تسجيل المستخدم في Supabase ----
-    // upsert: لو المستخدم موجود هيعدل بياناته، لو مش موجود هيضيفه
+    // --- 2. تسجيل المستخدم في Supabase (upsert) ---
     const { error: userError } = await supabase
       .from('users')
       .upsert({ 
@@ -46,7 +51,7 @@ module.exports = async (request, response) => {
 
     if (userError) throw userError;
 
-    // ---- 3. تسجيل الرسالة في Supabase ----
+    // --- 3. تسجيل الرسالة في Supabase ---
     const { error: messageError } = await supabase
       .from('messages')
       .insert({
@@ -57,16 +62,19 @@ module.exports = async (request, response) => {
 
     if (messageError) throw messageError;
 
-    // ---- 4. الرد على المستخدم ----
+    // --- 4. الرد على المستخدم ---
     const replyMessage = `رسالتك فيها ${charCount} حرف، واتسجلت في قاعدة البيانات! 👍`;
     await bot.sendMessage(chatId, replyMessage);
 
-    // إرسال رد 200 لتيليجرام عشان يعرف إننا استلمنا الرسالة
-    response.status(200).send('OK');
+    // إرسال رد 200 لتيليجرام
+    res.status(200).send('OK');
 
   } catch (error) {
     console.error('Error handling message:', error.message);
-    // إرسال رد 200 برضه عشان تيليجرام ميفضلش يبعت نفس الرسالة تاني
-    response.status(200).send('Error processing');
+    // لازم نرد بـ 200 حتى لو حصل خطأ، عشان تيليجرام ميبعتش الرسالة تاني
+    res.status(200).send('Error processing');
   }
-};
+});
+
+// 8. تصدير التطبيق لـ Vercel
+module.exports = app;
